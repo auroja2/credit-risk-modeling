@@ -1,0 +1,194 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+import matplotlib.pyplot as plt
+import seaborn as sns
+import groq
+
+# Groq API setup
+groq_api_key = "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"
+client = groq.Groq(api_key=groq_api_key)
+
+# Title of the app
+st.title("Credit Risk Modelling")
+
+# Introduction
+st.markdown("""
+## Introduction
+This application uses a logistic regression model to detect fraudulent credit card transactions. It also incorporates Groq's LLM for generating insights and answering questions about fraud detection.
+
+## Data Description
+The dataset contains credit card transactions, including both legitimate and fraudulent ones. We'll use machine learning to classify these transactions based on various features.
+""")
+
+# Load Data
+@st.cache_data
+def load_data():
+    credit_card_data = pd.read_csv("creditcard.csv")
+    return credit_card_data
+
+data = load_data()
+
+# Dataset Overview
+st.subheader("Dataset Overview")
+st.write(data.head())
+
+# Buttons for dataset insights
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("Show Dataset Info"):
+        st.write(data.info())
+with col2:
+    if st.button("Show Missing Values"):
+        st.write(data.isnull().sum())
+with col3:
+    if st.button("Show Data Statistics"):
+        st.write(data.describe())
+
+# Visualize Class Distribution
+st.subheader("Class Distribution")
+if st.button("Plot Class Distribution"):
+    fig, ax = plt.subplots()
+    sns.countplot(x="Class", data=data, ax=ax)
+    ax.set_title('Class Distribution')
+    st.pyplot(fig)
+    
+    st.markdown("""
+    *Class Distribution Explanation:*
+    - 0: Legitimate transactions
+    - 1: Fraudulent transactions
+    The plot shows the imbalance between legitimate and fraudulent transactions.
+    """)
+
+# Separate the data for analysis
+legit = data[data.Class == 0]
+fraud = data[data.Class == 1]
+
+st.write("Legit transactions:", legit.shape)
+st.write("Fraudulent transactions:", fraud.shape)
+
+# Visualize the Amount distribution
+st.subheader("Amount Distribution")
+if st.button("Plot Amount Distribution"):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    sns.histplot(legit['Amount'], bins=30, ax=ax1, kde=True)
+    ax1.set_title('Legit Transactions')
+    sns.histplot(fraud['Amount'], bins=30, ax=ax2, kde=True)
+    ax2.set_title('Fraudulent Transactions')
+    st.pyplot(fig)
+    
+    st.markdown("""
+    *Amount Distribution Explanation:*
+    These plots show the distribution of transaction amounts for both classes.
+    """)
+
+# Correlation Matrix
+st.subheader("Feature Correlation")
+if st.button("Show Correlation Matrix"):
+    corr_matrix = data.corr()
+    fig, ax = plt.subplots(figsize=(12, 10))
+    sns.heatmap(corr_matrix, annot=False, cmap='coolwarm', ax=ax)
+    st.pyplot(fig)
+    st.markdown("This heatmap shows the correlation between different features in the dataset.")
+
+# Undersampling
+st.subheader("Data Preparation")
+st.markdown("""
+*Undersampling Explanation:*
+We'll undersample legitimate transactions to match the number of fraudulent ones for a balanced dataset.
+""")
+
+legit_sample = legit.sample(n=len(fraud))
+new_dataset = pd.concat([legit_sample, fraud], axis=0)
+
+# Splitting the data
+X = new_dataset.drop(columns='Class', axis=1)
+Y = new_dataset['Class']
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, stratify=Y, random_state=2)
+
+# Model Training with Logistic Regression
+st.subheader("Model Training and Evaluation")
+model = LogisticRegression()
+model.fit(X_train, Y_train)
+
+# Evaluating the Model
+X_train_prediction = model.predict(X_train)
+X_test_prediction = model.predict(X_test)
+
+training_data_accuracy = accuracy_score(Y_train, X_train_prediction)
+test_data_accuracy = accuracy_score(Y_test, X_test_prediction)
+
+st.write(f"Training Data Accuracy: {training_data_accuracy * 100:.2f}%")
+st.write(f"Test Data Accuracy: {test_data_accuracy * 100:.2f}%")
+
+# Additional Model Evaluation Metrics
+if st.button("Show Detailed Model Evaluation"):
+    st.subheader("Confusion Matrix")
+    cm = confusion_matrix(Y_test, X_test_prediction)
+    fig, ax = plt.subplots()
+    sns.heatmap(cm, annot=True, fmt='d', ax=ax)
+    ax.set_xlabel('Predicted')
+    ax.set_ylabel('Actual')
+    st.pyplot(fig)
+    
+    st.subheader("Classification Report")
+    report = classification_report(Y_test, X_test_prediction)
+    st.text(report)
+
+# Groq-based Insights Generator
+st.subheader("Generate Risks Insights with Groq")
+insight_topic = st.text_input("Enter a topic for fraud insights:", "Explain credit card fraud detection techniques.")
+if st.button("Generate Insights"):
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert in credit card fraud detection. Provide clear and concise insights."
+            },
+            {
+                "role": "user",
+                "content": insight_topic
+            }
+        ],
+        model="mixtral-8x7b-32768",
+        max_tokens=150
+    )
+    st.write(chat_completion.choices[0].message.content)
+
+# Live Groq-based Q&A
+st.subheader("Ask Questions about Credit Card Modelling")
+user_question = st.text_input("Ask a question about credit card fraud detection:")
+if st.button("Get Answer"):
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert in credit card fraud detection. Answer questions clearly and concisely."
+            },
+            {
+                "role": "user",
+                "content": user_question
+            }
+        ],
+        model="mixtral-8x7b-32768",
+        max_tokens=150
+    )
+    st.write(chat_completion.choices[0].message.content)
+
+# Feature Importance
+st.subheader("Feature Importance")
+if st.button("Show Feature Importance"):
+    importance = model.coef_[0]
+    feature_importance = pd.DataFrame({'feature': X.columns, 'importance': abs(importance)})
+    feature_importance = feature_importance.sort_values('importance', ascending=False)
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(x='importance', y='feature', data=feature_importance.head(10), ax=ax)
+    ax.set_title('Top 10 Most Important Features')
+    st.pyplot(fig)
+    st.markdown("This plot shows the top 10 most important features in predicting fraud based on the logistic regression model.")
+
+# Running
